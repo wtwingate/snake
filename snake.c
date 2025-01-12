@@ -3,18 +3,21 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 #include <ncurses.h>
 
 #include "snake.h"
 
 int main(void)
 {
-    srand(time(NULL));	   // seed random number generator
+    srand(time(NULL));	    // seed random number generator
 
-    initscr();		   // start curses mode
-    curs_set(0);	   // make cursor invisible
-    noecho();		   // don't echo user input
-    keypad(stdscr, TRUE);  // enable arrow keys, etc.
+    initscr();		    // start curses mode
+    cbreak();		    // disable line buffering
+    noecho();		    // don't echo user input
+    curs_set(0);	    // make cursor invisible
+    keypad(stdscr, TRUE);   // enable arrow keys, etc.
+    nodelay(stdscr, TRUE);  // don't wait for user input
 
     int maxy;
     int maxx;
@@ -52,6 +55,15 @@ char **grid_init(int nrows, int ncols)
     return grid;
 }
 
+void grid_delete(char** grid, int nrows)
+{
+    for (int row = 0; row < nrows; row++) {
+	free(grid[row]);
+    }
+
+    free(grid);
+}
+
 body_t *body_init(int row, int col)
 {
     body_t *body = malloc(sizeof(body_t));
@@ -87,6 +99,18 @@ snake_t *snake_init(int row, int col, int size)
     return snake;
 }
 
+void snake_delete(snake_t *snake)
+{
+    body_t *current = snake->head;
+    while (current) {
+	body_t *next = current->next;
+	free(current);
+	current = next;
+    }
+
+    free(snake);
+}
+
 fruit_t *fruit_init(int row, int col)
 {
     fruit_t *fruit = malloc(sizeof(fruit));
@@ -111,7 +135,7 @@ game_t *game_init(int nrows, int ncols, WINDOW *window)
     }
 
     game->score = 0;
-    game->speed = 2;
+    game->speed = 200;
     game->nrows = nrows;
     game->ncols = ncols;
     game->snake = snake;
@@ -122,6 +146,14 @@ game_t *game_init(int nrows, int ncols, WINDOW *window)
     game_place_fruit(game);
 
     return game;
+}
+
+void game_delete(game_t *game)
+{
+    snake_delete(game->snake);
+    grid_delete(game->grid, game->nrows);
+    delwin(game->window);
+    free(game->fruit);
 }
 
 void game_place_fruit(game_t *game)
@@ -145,25 +177,32 @@ void game_loop(game_t *game)
     delta_t delta = DOWN;
 
     while (true) {
-	halfdelay(game->speed);
-
 	switch (getch()) {
 	case KEY_UP:
+	case 'W':
+	case 'w':
 	    if (delta != DOWN) delta = UP;
 	    break;
 	case KEY_DOWN:
+	case 'S':
+	case 's':
 	    if (delta != UP) delta = DOWN;
 	    break;
 	case KEY_LEFT:
+	case 'A':
+	case 'a':
 	    if (delta != RIGHT) delta = LEFT;
 	    break;
 	case KEY_RIGHT:
+	case 'D':
+	case 'd':
 	    if (delta != LEFT) delta = RIGHT;
 	    break;
 	}
 
 	game_tick(game, delta);
 	game_print(game);
+	usleep(game->speed * 1000);
     }
 }
 
@@ -205,33 +244,35 @@ void game_tick(game_t *game, delta_t delta)
     snake->head = new_head;
     game->grid[snake->row][snake->col] = 'X';
 
-    // we eat some food
     if (snake->row == game->fruit->row
 	&& snake->col == game->fruit->col) {
 	snake->size++;
+	game->score += 100;
 	game_place_fruit(game);
-	return;
+    } else {
+	body_t *new_tail = snake->tail->prev;
+	new_tail->next = NULL;
+	game->grid[snake->tail->row][snake->tail->col] = ' ';
+	free(snake->tail);
+	snake->tail = new_tail;
     }
-
-    body_t *new_tail = snake->tail->prev;
-    new_tail->next = NULL;
-    game->grid[snake->tail->row][snake->tail->col] = ' ';
-    free(snake->tail);
-    snake->tail = new_tail;
 }
 
 void game_print(game_t *game)
 {
-    wclear(game->window);
+    // update score
+    erase();
+    mvprintw(0, 0, "Score: %d", game->score);
+
+    // update game grid
+    werase(game->window);
     box(game->window, 0, 0);
 
-    wmove(game->window, game->fruit->row, game->fruit->col);
-    wprintw(game->window, "@");
+    mvwprintw(game->window, game->fruit->row, game->fruit->col, "@");
 
     body_t *current = game->snake->head;
     while (current) {
-	wmove(game->window, current->row, current->col);
-	wprintw(game->window, "X");
+	mvwprintw(game->window, current->row, current->col, "X");
 	current = current->next;
     }
     wrefresh(game->window);
@@ -239,9 +280,15 @@ void game_print(game_t *game)
 
 void game_over(game_t *game)
 {
-    cbreak();
-    refresh();
+    nodelay(stdscr, FALSE);
+
+    char *message = "Game Over!";
+    mvwprintw(game->window, game->nrows / 2,
+	      (game->ncols - strlen(message)) / 2,
+	      "%s", message);
+    wrefresh(game->window);
     getch();
+    game_delete(game);
     endwin();
 
     exit(0);

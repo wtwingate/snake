@@ -28,7 +28,7 @@ struct Fruit {
 typedef struct Game game_t;
 struct Game {
     int score;	     // total game score
-    int speed;	     // game speed in tenths of a second
+    int speed;	     // game speed in milliseconds
     int nrows;	     // number of rows (Y)
     int ncols;	     // number of cols (X)
     snake_t *snake;  // pointer to Snake struct
@@ -48,10 +48,13 @@ enum Delta {
 /* Function Declarations */
 
 char **grid_init(int nrows, int ncols);
+void grid_delete(char** grid, int nrows);
 body_t *body_init(int row, int col);
 snake_t *snake_init(int row, int col, int size);
+void snake_delete(snake_t *snake);
 fruit_t *fruit_init(int row, int col);
 game_t *game_init(int nrows, int ncols, WINDOW *window);
+void game_delete(game_t *game);
 void game_place_fruit(game_t *game);
 void game_loop(game_t *game);
 void game_tick(game_t *game, delta_t delta);
